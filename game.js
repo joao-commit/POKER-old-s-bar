@@ -113,6 +113,7 @@ class Game {
     this.community = [];
     this.over = false;
     this.raiseDisabled = false;
+    this.raisesThisStreet = 0;
     for (const p of this.players) {
       if (p.chips <= 0) { p.eliminated = true; p.cards = []; continue; }
       p.eliminated = false;
@@ -186,6 +187,7 @@ class Game {
       p.contribution = 0;
       p.actedThisRound = false;
     }
+    this.raisesThisStreet = 0;
   }
 
   fmtCards(cards) {
@@ -267,6 +269,7 @@ class Game {
       this.contribute(p, amt);
       this.currentBet = act.amount;
       this.minRaise = Math.max(this.minRaise, act.amount - oldBet);
+      this.raisesThisStreet++;
       ui.addLog(`${p.name}: aumentou para ${act.amount}`);
       if (p.chips === 0) { p.allIn = true; ui.addLog(`${p.name} está all-in!`); }
     }
@@ -287,10 +290,11 @@ class Game {
     } else {
       ui.addLog(`${reason}. Pote devolvido.`);
     }
+    const won = winner ? this.pot : 0;
     this.pot = 0;
     ui.render();
     this.checkEliminations();
-    ui.showHandOver(winner, reason, null);
+    ui.showHandOver(winner, reason, null, won);
   }
 
   showdown() {
@@ -317,7 +321,7 @@ class Game {
     this.pot = 0;
     ui.render();
     this.checkEliminations();
-    ui.showHandOver(winners, 'Showdown', best ? best.name : null);
+    ui.showHandOver(winners, 'Showdown', best ? best.name : null, share, winners.length > 1);
   }
 
   checkEliminations() {
@@ -336,27 +340,51 @@ class Game {
 }
 
 function aiDecide(game, p) {
-  const cards = p.cards.length >= 2 && game.community.length === 0 ? p.cards : [...p.cards, ...game.community];
-  const strength = game.community.length === 0 ? preflopStrength(p.cards) : postflopStrength(cards);
+  const pre = game.community.length === 0;
+  const cards = pre ? p.cards : [...p.cards, ...game.community];
+  const strength = pre ? preflopStrength(p.cards) : postflopStrength(cards);
   const toCall = game.currentBet - p.contribution;
   const pot = game.pot + game.players.reduce((s, q) => s + q.contribution, 0);
   const potOdds = toCall > 0 ? toCall / (pot + toCall) : 0;
+  const opps = game.activePlayers().length - 1;
+  const stackBB = p.chips / game.bb;
+  const raises = game.raisesThisStreet;
+  const total = p.chips + p.contribution;
   const rnd = Math.random();
+  const potSizeRaiseTo = Math.min(total, game.currentBet + (pot + toCall));
 
   if (game.raiseDisabled) {
     if (toCall === 0) return { type: 'check' };
-    return strength - potOdds > -0.05 || rnd < 0.08 ? { type: 'call' } : { type: 'fold' };
+    return strength - potOdds > -0.08 || rnd < 0.08 ? { type: 'call' } : { type: 'fold' };
+  }
+
+  if (stackBB <= 7 && total > 0) {
+    if (toCall === 0) return strength > 0.42 ? { type: 'raise', amount: total } : { type: 'check' };
+    if (strength - potOdds > 0.03 || rnd < 0.1) return { type: 'raise', amount: total };
+    return { type: 'fold' };
   }
 
   if (toCall === 0) {
-    if (strength > 0.62) return { type: 'raise', amount: Math.min(p.chips + p.contribution, game.currentBet + game.bb * 2 + game.bb * Math.round(strength * 4)) };
-    if (strength > 0.35 && rnd < 0.3) return { type: 'raise', amount: Math.min(p.chips + p.contribution, game.currentBet + game.bb) };
+    const betThresh = opps <= 1 ? 0.48 : 0.6;
+    if (strength > betThresh) {
+      const size = pre ? 0.4 + strength * 0.4 : 0.6;
+      return { type: 'raise', amount: Math.min(total, game.currentBet + Math.round(pot * size)) };
+    }
+    if (strength > 0.32 && rnd < 0.22) return { type: 'raise', amount: Math.min(total, game.currentBet + Math.round(pot * 0.5)) };
     return { type: 'check' };
   }
 
   const eff = strength - potOdds;
-  if (eff > 0.28) return { type: 'raise', amount: Math.min(p.chips + p.contribution, game.currentBet + game.bb * 2) };
-  if (eff > -0.06) return { type: 'call' };
-  if (rnd < 0.1) return { type: 'call' };
+  if (raises >= 2) {
+    if (eff > -0.06 || rnd < 0.08) return { type: 'call' };
+    return { type: 'fold' };
+  }
+  if (raises === 1) {
+    if (eff > 0.18 && strength > 0.62) return { type: 'raise', amount: potSizeRaiseTo };
+    if (eff > -0.06 || rnd < 0.07) return { type: 'call' };
+    return { type: 'fold' };
+  }
+  if (eff > 0.22) return { type: 'raise', amount: potSizeRaiseTo };
+  if (eff > -0.06 || rnd < 0.08) return { type: 'call' };
   return { type: 'fold' };
 }

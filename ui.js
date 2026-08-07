@@ -25,6 +25,7 @@ const ui = {
   start() {
     this.game = new Game(this.config);
     document.getElementById('log').innerHTML = '';
+    document.getElementById('win-banner').classList.add('hidden');
     document.getElementById('screen-start').classList.add('hidden');
     document.getElementById('game').classList.remove('hidden');
     this.game.startHand();
@@ -53,6 +54,7 @@ const ui = {
     });
     document.getElementById('btn-next').addEventListener('click', () => {
       document.getElementById('btn-next').classList.add('hidden');
+      document.getElementById('win-banner').classList.add('hidden');
       if (this.game.gameOver) {
         this.start();
         return;
@@ -189,11 +191,22 @@ const ui = {
     return wrap;
   },
 
-  showHandOver(winners, reason, handName) {
+  showHandOver(winners, reason, handName, amount, tied) {
     const arr = Array.isArray(winners) ? winners : [winners].filter(Boolean);
     if (arr.length === 0) return;
     const names = arr.map(w => w.name).join(', ');
-    this.addLog(`\u21D2 ${reason} — vencedor${arr.length > 1 ? 'es' : ''}: ${names}${handName ? ' (' + handName + ')' : ''}`);
+    const plural = arr.length > 1;
+    this.addLog(`\u21D2 ${reason} — vencedor${plural ? 'es' : ''}: ${names}${handName ? ' (' + handName + ')' : ''}`);
+
+    const banner = document.getElementById('win-banner');
+    banner.classList.remove('hidden');
+    banner.innerHTML =
+      `<div class="win-banner-inner"><div class="win-trophy">🏆</div>` +
+      `<div class="win-title">Vencedor${plural ? 'es' : ''}</div>` +
+      `<div class="win-name">${names}</div>` +
+      `<div class="win-amount">levou ${amount} fichas${tied ? ' (cada)' : ''}</div>` +
+      `</div>`;
+
     const btn = document.getElementById('btn-next');
     btn.classList.remove('hidden');
     document.getElementById('actions').classList.add('hidden');
